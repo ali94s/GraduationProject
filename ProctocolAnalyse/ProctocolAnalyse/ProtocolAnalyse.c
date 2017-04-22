@@ -1,5 +1,7 @@
 #include"ProtocolAnalyse.h"
-
+#define NUM_ROOTS 512
+#define SIZEOF_FLOW_STRUCT (sizeof(struct ndpi_flow_struct))
+#define SIZEOF_ID_STRUCT (sizeof(struct ndpi_id_struct))
 //memory counters
 u_int32_t current_ndpi_memory=0,max_ndpi_memory=0;
 
@@ -9,6 +11,7 @@ struct ndpi_workflow
 	//u_int32_t last time;
 	pcap_t *handle;
 	struct ndpi_detection_module_struct *ndpi_struct;
+	void **ndpi_flow_root; 
 };
 //declare main flow
 struct ndpi_workflow *main_workflow;
@@ -17,7 +20,7 @@ struct ndpi_workflow *main_workflow;
 /* ******************************************* */
 /*             open pcap device                */
 /* ******************************************* */
-struct pcap_t* OpenPcapDevice()
+struct pcap_t* open_pcapdevice()
 {
 	char errBuf[PCAP_ERRBUF_SIZE], *devStr;
 	devStr = "eth2";
@@ -26,7 +29,7 @@ struct pcap_t* OpenPcapDevice()
 	handle = pcap_open_live(devStr, 65535, 1, 0, errBuf);
 	if (handle)
 	{
-		printf("open success\n");
+		printf("open sucess\n");
 	}
 	else
 	{
@@ -40,10 +43,10 @@ struct pcap_t* OpenPcapDevice()
 /* ******************************************* */
 /*      set ndpi protocol and arguments        */
 /* ******************************************* */
-void SetupDetection(struct pcap_t *handle)
+void setup_detection(struct pcap_t *handle)
 {
 	NDPI_PROTOCOL_BITMASK all;
-	main_workflow = ndpi_workflow_init(handle);
+	ndpi_workflow_init(handle);
 	NDPI_BITMASK_SET_ALL(all);
 	ndpi_set_protocol_detection_bitmask2(main_workflow->ndpi_struct,&all);
 }
@@ -53,7 +56,7 @@ void SetupDetection(struct pcap_t *handle)
 /* ******************************************* */
 /*                  RunPcapLoop                */
 /* ******************************************* */
-void RunPcapLoop(struct pcap_t *handle)
+void run_pcaploop(struct pcap_t *handle)
 {
 	pcap_loop(handle, -1, packet_analyse,(u_char*)handle);
 }
@@ -133,46 +136,236 @@ void packet_analyse(u_char *user,const struct pcap_pkthdr *hdr,const u_char *pac
 	//not ip fragments
 	if(((flag & IP_MF) == 0) && ((flag & IP_OFFSET) == 0))
 	{
-		printf("gg\n");
-		protocol = get_protocol(iph);
-		printf("is not fragments\n");
+		protocol = get_protocol(iph,ip_offset,hdr->len-ip_offset);
+		//printf("is not fragments\n");
 		printf("%d\n",protocol.master_protocol);
 	}
 	else
 	{
-	//	get_whole_ip_packet(iph);
-		//printf("is fragments\n");
-		//return;
+		iph = get_whole_ip_packet(iph);
+		if(iph)
+		{
+			//get a whole ip packet
+		}
+		else
+		{
+			return ;
+		}
 	}
+}
 
-//	get_whole_ip_packet(iph);
 
-	//printf("protocol num = :%d\n",iph->protocol);
-	//if(iph->frag_off & 0x1fff == )
-	//printf("frag:%d\n",iph->frag_off);
+
+
+/* ******************************************* */
+/*             regroup ip packets              */
+/* ******************************************* */
+struct ndpi_iphdr* get_whole_ip_packet(struct ndpi_iphdr* iph)
+{
 	
 }
+
+
+
+
+/* ******************************************* */
+/*             ndpi_node_com                   */
+/* ******************************************* */
+int ndpi_node_com(const void *a,const void *b)
+{
+	struct ndpi_flow_info *fa = (struct ndpi_flow_info*)a;
+	struct ndpi_flow_info *fb = (struct ndpi_flow_info*)b;
+	if(fa->src < fb->src)
+		return (-1);
+	else
+	{
+		if(fa->src > fb->src)
+			return (1);
+	}
+	if(fa->dst < fb->dst)
+		return (-1);
+	else
+	{
+		if(fa->dst > fb->dst)
+			return (1);
+	}
+	if(fa->sport < fb->sport)
+		return (-1);
+	else
+	{
+		if(fa->sport > fb->sport)
+			return (1);
+	}
+	if(fa->dport < fb->dport)
+		return (-1);
+	else
+	{
+		if(fa->dport > fb->dport)
+			return (1);
+	}
+	if(fa->protocol < fb->protocol)
+		return (-1);
+	else
+	{
+		if(fa->protocol > fb->protocol)
+			return (1);
+	}
+	return 0;
+}
+
+
+
+
+/* ******************************************* */
+/*          get_ndpi_flow_info                */
+/* ******************************************* */
+struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_offset,struct ndpi_id_struct **src,struct ndpi_id_struct **dst)
+{
+	struct ndpi_tcphdr *tcph;
+	struct ndpi_udphdr *udph;
+	u_int32_t saddr,daddr,addr_tmp;
+	u_int16_t sport,dport,port_tmp;
+	u_int32_t ip_header_len;
+	u_int8_t protocol;
+	u_int32_t idx;
+	struct ndpi_flow_info flow;
+	void *ret;
+
+	
+	protocol = iph->protocol;
+	ip_header_len = (iph->ihl)*4;
+	saddr = iph->saddr;
+	daddr = iph->daddr;
+
+	//TCP
+	if(protocol == IPPROTO_TCP)
+	{
+		tcph = (struct ndpi_tcphdr*)&(iph[ip_header_len]);
+		sport = tcph->source;
+		dport = tcph->dest;
+	}
+	//UDP
+	else if(protocol == IPPROTO_UDP)
+	{
+		udph = (struct ndpi_udphdr*)&(iph[ip_header_len]);
+		sport = udph->source;
+		dport = udph->dest;
+	}
+	else
+	{
+		sport = 0;
+		dport = 0;
+	}
+	//use lower 
+	if(saddr > daddr)
+	{
+		addr_tmp = saddr;
+		saddr = daddr;
+		daddr = addr_tmp;
+		port_tmp = sport;
+		sport = dport;
+		dport = port_tmp;
+	}
+
+
+	flow.src = saddr;
+	flow.dst = daddr;
+	flow.sport = sport;
+	flow.dport = dport;
+	flow.protocol = protocol;
+
+	idx = (saddr + daddr + sport + dport + protocol)%NUM_ROOTS;
+	ret = ndpi_tfind(&flow,&main_workflow->ndpi_flow_root[idx],ndpi_node_com);
+	if(ret == NULL)
+	{
+		struct ndpi_flow_info *newflow = (struct ndpi_flow_info *)malloc(sizeof(struct ndpi_flow_info));
+		if(newflow == NULL)
+		{
+			printf("memory failed!\n");
+			return 0;
+		}
+		memset(newflow,0,sizeof(struct ndpi_flow_info));
+		newflow->src=saddr;
+		newflow->dst=daddr;
+		newflow->sport=sport;
+		newflow->dport=dport;
+		newflow->protocol=protocol;
+
+		if((newflow->ndpi_flow = ndpi_malloc(SIZEOF_FLOW_STRUCT)) == NULL)
+		{
+			free(newflow);
+			return NULL;
+		}
+		else
+			memset(newflow->ndpi_flow,0,SIZEOF_FLOW_STRUCT);
+		if((newflow->src_id = ndpi_malloc(SIZEOF_ID_STRUCT)) == NULL) 
+		{
+			free(newflow);
+			return NULL;
+		}
+		else
+			memset(newflow->src_id,0,SIZEOF_ID_STRUCT);
+		if((newflow->dst_id = ndpi_malloc(SIZEOF_ID_STRUCT)) == NULL)
+		{
+			free(newflow);
+			return NULL;
+		}
+		else
+			memset(newflow->dst_id,0,SIZEOF_ID_STRUCT);
+		ndpi_tsearch(newflow, &main_workflow->ndpi_flow_root[idx], ndpi_node_com);
+		*src = newflow->src_id;
+		*dst = newflow->dst_id;
+		return newflow;
+	}
+	else
+	{
+		struct ndpi_flow_info *tmpflow = *(struct ndpi_flow_info**)ret;
+		if(tmpflow->src == saddr && tmpflow->dst == daddr && tmpflow->sport == sport && tmpflow->dport == dport && tmpflow->protocol == protocol)
+		{
+			*src = tmpflow->src_id;
+			*dst = tmpflow->dst_id;
+		}
+		else
+		{
+			*src = tmpflow->dst_id;
+			*dst = tmpflow->src_id;
+		}
+		return tmpflow;
+	}
+}
+
 
 
 /* ******************************************* */
 /*            get protocol func                */
 /* ******************************************* */
-ndpi_protocol  get_protocol(struct ndpi_iphdr *iph)
+ndpi_protocol  get_protocol(struct ndpi_iphdr *iph,u_int16_t ip_offset,u_int32_t ip_size)
 {
-	ndpi_protocol protocol={NDPI_PROTOCOL_UNKNOWN,NDPI_PROTOCOL_UNKNOWN};
-//	protocol.app_protocol=NDPI_PROTOCOL_UNKNOWN;
-
-	struct ndpi_flow_struct *ndpi_flow = (struct ndpi_flow_struct*)malloc(sizeof(struct ndpi_flow_struct));
-	if(ndpi_flow==NULL)
+	struct ndpi_flow_info *flow = NULL;
+	struct ndpi_flow_struct *ndpi_flow = NULL;
+	struct ndpi_id_struct *src, *dst;
+	if(iph)
 	{
-		printf("malloc failed\n");
-		return protocol;
+		flow = get_ndpi_flow_info(iph,ip_offset,&src,&dst);
 	}
-	memset(ndpi_flow,0,sizeof(struct ndpi_flow_struct));
-	//ndpi = get_ndpi_flow_info();
-	protocol= ndpi_detection_process_packet(main_workflow->ndpi_struct,ndpi_flow,iph,iph->tot_len,1000,NULL,NULL);
-	free(ndpi_flow);
-	return protocol;
+	else
+	{
+		//ipv6
+	}
+	if(flow != NULL)
+	{
+		ndpi_flow = flow->ndpi_flow;
+		//if(flow->detection_completed)
+		//{
+		//	return 0;
+		//}
+		//else
+		//	{
+		flow->detected_protocol= ndpi_detection_process_packet(main_workflow->ndpi_struct,ndpi_flow,iph,ip_size,1000,src,dst);
+				//if(flow->detected_protocol.master_protocol == )
+			//}
+		return flow->detected_protocol;
+	}
 }
 
 
@@ -211,17 +404,17 @@ static void free_wrapper(void *freeable)
 	free(freeable);
 }
 
-struct ndpi_workflow *ndpi_workflow_init(pcap_t *handle)
+void ndpi_workflow_init(pcap_t *handle)
 {
 	set_ndpi_malloc(malloc_wrapper),set_ndpi_free(free_wrapper);
 	struct ndpi_detection_module_struct *module = ndpi_init_detection_module();
-	struct ndpi_workflow *workflow = ndpi_calloc(1,sizeof(struct ndpi_workflow));
-	workflow->handle = handle;
-	workflow->ndpi_struct = module;
-	if(workflow->ndpi_struct == NULL)
+	main_workflow = calloc(1,sizeof(struct ndpi_workflow));
+	main_workflow->handle = handle;
+	main_workflow->ndpi_struct = module;
+	main_workflow->ndpi_flow_root = calloc(NUM_ROOTS,sizeof(void*));
+	if(main_workflow->ndpi_struct == NULL)
 	{
 		exit(-1);
 	}
-	return workflow;
 }
 

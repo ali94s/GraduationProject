@@ -8,6 +8,19 @@
 #define SNAP 0xaa
 
 
+struct ndpi_flow_info
+{
+	u_int32_t src;
+	u_int32_t dst;
+	u_int16_t sport;
+	u_int16_t dport;
+	u_int8_t detection_completed, protocol;
+	struct ndpi_flow_struct *ndpi_flow;
+	ndpi_protocol detected_protocol;
+	void *src_id,*dst_id;
+};
+
+
 /*
 struct ip_id_node
 {
@@ -51,25 +64,31 @@ struct ip_id_node* find_node(struct ndpi_iphdr* hdr)
 */
 
 //Open Device
-struct pcap_t* OpenPcapDevice();
+struct pcap_t* open_pcapdevice();
 
 //Setup the ndpi arguments
-void SetupDetection(struct pcap_t *handle);
+void setup_detection(struct pcap_t *handle);
 
 //Run pcap_loop
-void RunPcapLoop(struct pcap_t *device);
+void run_pcaploop(struct pcap_t *device);
 
 //pcap_loop call back
 void packet_analyse(u_char *user, const struct pcap_pkthdr *hdr, const u_char *packet);
 
 //get protocol func
-ndpi_protocol  get_protocol(struct ndpi_iphdr *hdr);
+ndpi_protocol  get_protocol(struct ndpi_iphdr *hdr,u_int16_t ip_offset,u_int32_t ip_size);
 
 //init workflow
-struct ndpi_workflow *ndpi_workflow_init(pcap_t *handle);
+void ndpi_workflow_init(pcap_t *handle);
+
+//get_ndpi_flow_info
+struct get_ndpi_flow_info *get_nepi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_offset,struct ndpi_id_struct **src,struct ndpi_id_struct **dst);
+
+//ndpi_node_com
+int ndpi_node_com(const void *a,const void *b);
 
 
 
 
 //regroup ip fragments
-//struct ndpi_iphdr* get_whole_ip_packet(struct ndpi_iphdr* iph);
+struct ndpi_iphdr* get_whole_ip_packet(struct ndpi_iphdr* iph);
