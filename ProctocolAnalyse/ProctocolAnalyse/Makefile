@@ -4,7 +4,7 @@ DEBUG = -g
 
 all:main
 
-LIBS=-lpcap -lndpi
+LIBS=-lpcap -lndpi -lpthread
 main:main.c ProtocolAnalyse.c
 	$(CC) -o $@ $^ $(LIBS) $(NO_WARN)
 
