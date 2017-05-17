@@ -36,6 +36,8 @@ struct ndpi_flow_info
 	u_int32_t packets;
 	int data_len;
 	struct timeval begin,end;
+	int status;
+	int outnode;
 };
 
 

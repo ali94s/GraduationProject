@@ -28,14 +28,14 @@ void thread_create()
 
 void open_mysql()
 {
-	//char create[]="create table FlowAnalyse(PrivateIP varchar(30),ExplicitIP varchar(30),PrivatePort int,ExplicitPort int,TransportProtocol varchar(30),ApplicationProtocol varchar(30),BeginTime varchar(30),EndTime varchar(30),Flow int,Packets int);";
+	char create[]="create table FlowAnalyse(PriIP varchar(30),ExIP varchar(30),PriPort int,ExPort int,Trans varchar(30),App varchar(30),BeginTime int,EndTime int,Flow int,Packets int);";
 	if((mysql=mysql_init(NULL))==NULL)
 		printf("init failed\n");
 	if(NULL == mysql_real_connect(mysql,"localhost","root","root","mydatabase",0,NULL,0))
 		printf("connect failed\n");
-	/*if(mysql_real_query(mysql,create,strlen(create))!=0)
+	if(mysql_real_query(mysql,create,strlen(create))!=0)
 		printf("create failed\n");
-	*/
+	
 }
 
 

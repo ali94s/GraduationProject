@@ -4,7 +4,7 @@
 //#include<sys/types.h>
 #include<sys/syscall.h>
 
-
+#define FIN_TIMEOUT 40
 #define TIMEOUT 101
 #define INTERVAL 20   //time lag 
 #define HASH_SIZE 64
@@ -35,32 +35,87 @@ struct ndpi_workflow *main_workflow;
 
 
 
+void get_and_insert_mysql(struct ndpi_flow_info *tmpnode,char* buf)
+{
+	Trace("begin:sec=%d,usec=%d\n",tmpnode->begin.tv_sec,tmpnode->begin.tv_usec);
+	Trace("end:sec=%d,usec=%d\n",tmpnode->end.tv_sec,tmpnode->end.tv_usec);
+	char data[512];
+	if(tmpnode->begin.tv_sec!=tmpnode->end.tv_sec || tmpnode->begin.tv_usec!=tmpnode->end.tv_usec)
+	{
+		sprintf(data,"insert into FlowAnalyse(PriIP,ExIP,PriPort,ExPort,Trans,App,BeginTime,EndTime,Flow,Packets)values('%s','%s',%d,%d,%d,'%s',%d,%d,%d,%d)",tmpnode->lower_ip,tmpnode->upper_ip,\
+		tmpnode->sport,tmpnode->dport,(tmpnode->protocol),buf,tmpnode->begin.tv_sec,\
+		tmpnode->end.tv_sec,tmpnode->data_len,tmpnode->packets);
+		insert_mysql(mysql,data);
+	}
+
+}
+
+
 void check_node(ndpi_node *root)
 {
-
 	struct ndpi_flow_info *tmpnode;
 	tmpnode=(struct ndpi_flow_info*)(root->key);
 	int node_timeout;
+	int fin_timeout;
 	struct timeval com_time;
-	//printf("start:%d\n",tmpnode->begin.tv_sec);
-	//fclose(fd);	
-	//printf("end:%d\n",tmpnode->end.tv_sec);
+	char buf[64];
+	ndpi_protocol2name(main_workflow->ndpi_struct,tmpnode->detected_protocol,buf,sizeof(buf));
+
 	gettimeofday(&com_time,NULL);
-	//printf("now:%d\n",com_time.tv_sec);
+	
 	node_timeout=com_time.tv_sec-tmpnode->end.tv_sec;
-	//printf("time=%d\n",node_timeout);
-	if((/*(node_timeout >= TIMEOUT) &&*/ (tmpnode->detection_completed == 1)))
+	if(tmpnode->outnode!=1)
 	{
-		Trace("write data to database\n");
-		char data[512];
-		char buf[64];
-		ndpi_protocol2name(main_workflow->ndpi_struct,tmpnode->detected_protocol,buf,sizeof(buf));
-		Trace("buf=%s",buf);
-		sprintf(data,"insert into FlowAnalyse(PrivateIP,ExplicitIP,PrivatePort,ExplicitPort,TransportProtocol,ApplicationProtocol,BeginTime,EndTime,Flow,Packets)values('%s','%s',%d,%d,%d,'%s','%s','%s',%d,%d)",tmpnode->lower_ip,tmpnode->upper_ip,\
-			tmpnode->sport,tmpnode->dport,(tmpnode->protocol),buf,ctime(&(tmpnode->begin.tv_sec)),\
-			ctime(&(tmpnode->end.tv_sec)),tmpnode->data_len,tmpnode->packets);
-		Trace("%s\n",data);
-	insert_mysql(mysql,data);
+		//TCP
+		if(tmpnode->protocol==IPPROTO_TCP)
+		{
+			if(tmpnode->detection_completed==1)    //get protocol already
+			{
+				if(tmpnode->status==1)
+				{
+					fin_timeout=node_timeout;
+					if(fin_timeout>=FIN_TIMEOUT)
+					{
+						get_and_insert_mysql(tmpnode,buf);
+						tmpnode->outnode=1;
+					}
+				}
+				else
+				{
+					if(node_timeout>=TIMEOUT)
+					{
+						get_and_insert_mysql(tmpnode,buf);
+						tmpnode->outnode=1;
+					}
+				}
+			}
+			else  //not get protocol
+			{
+				if(node_timeout>=TIMEOUT)
+				{
+					tmpnode->outnode=1;
+				}
+			}
+		}
+		//UDP or either
+		else
+		{
+			if(tmpnode->detection_completed==1)
+			{
+				if(node_timeout>=TIMEOUT)
+				{
+					get_and_insert_mysql(tmpnode,buf);
+					tmpnode->outnode=1;
+				}
+			}
+			else
+			{
+				if(node_timeout>=TIMEOUT)
+					{
+						tmpnode->outnode=1;
+					}
+			}
+		}
 	}
 }
 
@@ -78,7 +133,7 @@ void prevorder_tree(ndpi_node *root)
 void do_timeout()
 {
 	//  use main_workflow->ndpi_flow_root  
-	//printf("do timeout\n");
+	Trace("do timeout\n");
 	pthread_mutex_lock(&lock);
 	int i=0;
 	struct ndpi_node** root;
@@ -349,6 +404,7 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 	struct ndpi_flow_info flow;
 	void *ret;
 	struct timeval write_time;
+	int data_len;
 
 	gettimeofday(&write_time,NULL);
 	protocol = iph->protocol;
@@ -362,6 +418,7 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 		tcph = (struct ndpi_tcphdr*)&(iph[ip_header_len]);
 		sport = ntohs(tcph->source);
 		dport = ntohs(tcph->dest);
+		data_len=ntohs(iph->tot_len)-ip_header_len-(tcph->doff)*4;
 	}
 	//UDP
 	else if(protocol == IPPROTO_UDP)
@@ -369,6 +426,7 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 		udph = (struct ndpi_udphdr*)&(iph[ip_header_len]);
 		sport = ntohs(udph->source);
 		dport = ntohs(udph->dest);
+		data_len=ntohs(iph->tot_len)-ip_header_len-8;
 	}
 	else
 	{
@@ -396,7 +454,7 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 	idx = (saddr + daddr + sport + dport + protocol)%NUM_ROOTS;
 	//printf("result=%ld\n",saddr+daddr+sport+dport+protocol);	
 	//printf("nodeidx=%d\n",idx);
-
+get_node:
 	ret = ndpi_tfind(&flow,&main_workflow->ndpi_flow_root[idx],ndpi_node_com);
 	if(ret == NULL)
 	{
@@ -413,10 +471,20 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 		newflow->sport=sport;
 		newflow->dport=dport;
 		newflow->protocol=protocol;
-		newflow->data_len=iph->tot_len-ip_header_len;
+		newflow->data_len=data_len;
 		newflow->begin=write_time;
 		newflow->end=write_time;
-
+		if(iph->protocol==IPPROTO_TCP)
+		{
+			if(tcph->fin==1)
+			{
+				newflow->status=1;   //end
+			}
+			else
+			{
+				newflow->status=-1;  //not end
+			}
+		}
 		//printf("beginwrite:%d\n",newflow->begin.tv_sec);
 		//printf("endwrite:%d\n",newflow->end.tv_sec);
 		
@@ -452,6 +520,19 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 	else
 	{
 		struct ndpi_flow_info *tmpflow = *(struct ndpi_flow_info**)ret;
+		if(tmpflow->outnode==1)
+		{
+			Trace("DELETE\n");
+			ndpi_tdelete(tmpflow,&main_workflow->ndpi_flow_root[idx],ndpi_node_com);
+			goto get_node;
+		}
+		if(iph->protocol==IPPROTO_TCP)
+		{
+			if(tcph->fin==1)
+			{
+				tmpflow->status=1;
+			}
+		}
 		if(tmpflow->src == saddr && tmpflow->dst == daddr && tmpflow->sport == sport && tmpflow->dport == dport && tmpflow->protocol == protocol)
 		{
 			*src = tmpflow->src_id;
@@ -462,7 +543,7 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 			*src = tmpflow->dst_id;
 			*dst = tmpflow->src_id;
 		}
-		tmpflow->data_len+=(iph->tot_len-ip_header_len);
+		tmpflow->data_len+=data_len;
 		tmpflow->end=write_time;
 		//printf("%x\n",&tmpflow);
 		return tmpflow;
@@ -476,7 +557,6 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 /* ******************************************* */
 void get_protocol(struct ndpi_iphdr *iph,u_int16_t ip_offset,u_int32_t ip_size)
 {
-	char buf[64];
 	struct ndpi_flow_info *flow = NULL;
 	struct ndpi_flow_struct *ndpi_flow = NULL;
 	struct ndpi_id_struct *src, *dst;
@@ -513,15 +593,13 @@ void get_protocol(struct ndpi_iphdr *iph,u_int16_t ip_offset,u_int32_t ip_size)
 	{
 		if(flow->detected_protocol.master_protocol == NDPI_PROTOCOL_UNKNOWN)
 		{
-			flow->detected_protocol=ndpi_detection_giveup(main_workflow->ndpi_struct,flow->ndpi_flow);
+			//flow->detected_protocol=ndpi_detection_giveup(main_workflow->ndpi_struct,flow->ndpi_flow);
+			flow->outnode=1;  //if next packet come get new node
 		}
 	}
 	pthread_mutex_unlock(&lock);
-	
-	
-	ndpi_protocol2name(main_workflow->ndpi_struct,flow->detected_protocol,buf,sizeof(buf));
-	printf("%s\n",buf);
-}
+}	
+
 
 
 /* ******************************************* */
