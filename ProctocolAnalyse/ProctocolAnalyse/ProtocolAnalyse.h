@@ -24,9 +24,12 @@ struct ndpi_workflow
 //ndpi flow infstruct
 struct ndpi_flow_info
 {
-	u_int32_t src;
-	u_int32_t dst;
-	char lower_ip[48],upper_ip[48];
+	u_int32_t lower_src;
+	u_int32_t lower_dst;
+	u_int16_t lower_sport,lower_dport;
+	char saddr[48],daddr[48];
+	//u_int16_t lowe_port,upper_port;
+	//char saddr[48],daddr[48];
 	u_int16_t sport;
 	u_int16_t dport;
 	u_int8_t detection_completed, protocol;

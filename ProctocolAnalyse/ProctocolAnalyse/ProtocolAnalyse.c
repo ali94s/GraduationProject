@@ -3,6 +3,8 @@
 #include"trace.h"
 //#include<sys/types.h>
 #include<sys/syscall.h>
+#include"regroup.h"
+
 
 #define FIN_TIMEOUT 40
 #define TIMEOUT 101
@@ -32,17 +34,28 @@ u_int32_t current_ndpi_memory=0,max_ndpi_memory=0;
 
 //declare main flow
 struct ndpi_workflow *main_workflow;
-
-
-
-void get_and_insert_mysql(struct ndpi_flow_info *tmpnode,char* buf)
+/*
+char* ndpi_protocol2name(struct ndpi_detection_module_struct *ndpi_mod,ndpi_protocol proto, char *buf, u_int buf_len) 
 {
-	Trace("begin:sec=%d,usec=%d\n",tmpnode->begin.tv_sec,tmpnode->begin.tv_usec);
-	Trace("end:sec=%d,usec=%d\n",tmpnode->end.tv_sec,tmpnode->end.tv_usec);
+	
+	if((proto.master_protocol != NDPI_PROTOCOL_UNKNOWN) && (proto.master_protocol != proto.app_protocol)) 
+	{
+		snprintf(buf, buf_len, "%s",ndpi_get_proto_name(ndpi_mod, proto.master_protocol));		    
+	} else
+		snprintf(buf, buf_len, "%s",ndpi_get_proto_name(ndpi_mod, proto.app_protocol));
+	return(buf);
+}
+*/
+void get_and_insert_mysql(struct ndpi_flow_info *tmpnode)
+{
+	//Trace("begin:sec=%d,usec=%d\n",tmpnode->begin.tv_sec,tmpnode->begin.tv_usec);
+	//Trace("end:sec=%d,usec=%d\n",tmpnode->end.tv_sec,tmpnode->end.tv_usec);
+	char buf[48];
 	char data[512];
+	snprintf(buf,sizeof(buf),"%s",ndpi_get_proto_name(main_workflow->ndpi_struct,(tmpnode->detected_protocol).master_protocol));
 	if(tmpnode->begin.tv_sec!=tmpnode->end.tv_sec || tmpnode->begin.tv_usec!=tmpnode->end.tv_usec)
 	{
-		sprintf(data,"insert into FlowAnalyse(PriIP,ExIP,PriPort,ExPort,Trans,App,BeginTime,EndTime,Flow,Packets)values('%s','%s',%d,%d,%d,'%s',%d,%d,%d,%d)",tmpnode->lower_ip,tmpnode->upper_ip,\
+		sprintf(data,"insert into FlowAnalyse(PriIP,ExIP,PriPort,ExPort,Trans,App,BeginTime,EndTime,Flow,Packets)values('%s','%s',%d,%d,%d,'%s',%d,%d,%d,%d)",tmpnode->saddr,tmpnode->daddr,\
 		tmpnode->sport,tmpnode->dport,(tmpnode->protocol),buf,tmpnode->begin.tv_sec,\
 		tmpnode->end.tv_sec,tmpnode->data_len,tmpnode->packets);
 		insert_mysql(mysql,data);
@@ -58,9 +71,8 @@ void check_node(ndpi_node *root)
 	int node_timeout;
 	int fin_timeout;
 	struct timeval com_time;
-	char buf[64];
-	ndpi_protocol2name(main_workflow->ndpi_struct,tmpnode->detected_protocol,buf,sizeof(buf));
-
+	//char buf[64];
+	//ndpi_protocol2name(main_workflow->ndpi_struct,tmpnode->detected_protocol,buf,sizeof(buf));
 	gettimeofday(&com_time,NULL);
 	
 	node_timeout=com_time.tv_sec-tmpnode->end.tv_sec;
@@ -76,7 +88,7 @@ void check_node(ndpi_node *root)
 					fin_timeout=node_timeout;
 					if(fin_timeout>=FIN_TIMEOUT)
 					{
-						get_and_insert_mysql(tmpnode,buf);
+						get_and_insert_mysql(tmpnode);
 						tmpnode->outnode=1;
 					}
 				}
@@ -84,7 +96,7 @@ void check_node(ndpi_node *root)
 				{
 					if(node_timeout>=TIMEOUT)
 					{
-						get_and_insert_mysql(tmpnode,buf);
+						get_and_insert_mysql(tmpnode);
 						tmpnode->outnode=1;
 					}
 				}
@@ -104,7 +116,7 @@ void check_node(ndpi_node *root)
 			{
 				if(node_timeout>=TIMEOUT)
 				{
-					get_and_insert_mysql(tmpnode,buf);
+					get_and_insert_mysql(tmpnode);
 					tmpnode->outnode=1;
 				}
 			}
@@ -264,6 +276,7 @@ void packet_analyse(u_char *user,const struct pcap_pkthdr *hdr,const u_char *pac
 	int pyld_eth_len = 0;
 	int check = 0;
 	int flag = 0;
+	struct ndpi_iphdr **defrag;
 	//ndpi_protocol  protocol;
 	//u_char *packet_check=malloc(hdr->caplen);
 	//memcpy(packet_check,packet,hdr->caplen);
@@ -327,6 +340,12 @@ void packet_analyse(u_char *user,const struct pcap_pkthdr *hdr,const u_char *pac
 		//iph = get_whole_ip_packet(iph);
 		if(iph)
 		{
+			/*	
+		 	if(ip_defrag_stub(iph,defrag)==1)
+			{
+				get_protocol((struct ndpi_iphdr*)*defrag,0,(struct ndpi_iphdr*)(*defrag)->tot_len);
+			}
+			*/
 		}
 		else
 		{
@@ -348,32 +367,32 @@ int ndpi_node_com(const void *a,const void *b)
 {
 	struct ndpi_flow_info *fa = (struct ndpi_flow_info*)a;
 	struct ndpi_flow_info *fb = (struct ndpi_flow_info*)b;
-	if(fa->src < fb->src)
+	if(fa->lower_src < fb->lower_src)
 		return (-1);
 	else
 	{
-		if(fa->src > fb->src)
+		if(fa->lower_src > fb->lower_src)
 			return (1);
 	}
-	if(fa->dst < fb->dst)
+	if(fa->lower_dst < fb->lower_dst)
 		return (-1);
 	else
 	{
-		if(fa->dst > fb->dst)
+		if(fa->lower_dst > fb->lower_dst)
 			return (1);
 	}
-	if(fa->sport < fb->sport)
+	if(fa->lower_sport < fb->lower_sport)
 		return (-1);
 	else
 	{
-		if(fa->sport > fb->sport)
+		if(fa->lower_sport > fb->lower_sport)
 			return (1);
 	}
-	if(fa->dport < fb->dport)
+	if(fa->lower_dport < fb->lower_dport)
 		return (-1);
 	else
 	{
-		if(fa->dport > fb->dport)
+		if(fa->lower_dport > fb->lower_dport)
 			return (1);
 	}
 	if(fa->protocol < fb->protocol)
@@ -408,22 +427,24 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 
 	gettimeofday(&write_time,NULL);
 	protocol = iph->protocol;
+	Trace("protocol=%d\n",protocol);
 	ip_header_len = (iph->ihl)*4;
 	saddr = iph->saddr;
 	daddr = iph->daddr;
-
+	
 	//TCP
 	if(protocol == IPPROTO_TCP)
 	{
-		tcph = (struct ndpi_tcphdr*)&(iph[ip_header_len]);
+		tcph = (struct ndpi_tcphdr*)((char *)iph+ip_header_len);
 		sport = ntohs(tcph->source);
 		dport = ntohs(tcph->dest);
+		Trace("sport=%d,dport=%d\n",sport,dport);
 		data_len=ntohs(iph->tot_len)-ip_header_len-(tcph->doff)*4;
 	}
 	//UDP
 	else if(protocol == IPPROTO_UDP)
 	{
-		udph = (struct ndpi_udphdr*)&(iph[ip_header_len]);
+		udph = (struct ndpi_udphdr*)((char *)iph+ip_header_len);
 		sport = ntohs(udph->source);
 		dport = ntohs(udph->dest);
 		data_len=ntohs(iph->tot_len)-ip_header_len-8;
@@ -445,10 +466,10 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 	}
 
 
-	flow.src = saddr;
-	flow.dst = daddr;
-	flow.sport = sport;
-	flow.dport = dport;
+	flow.lower_src = saddr;
+	flow.lower_dst = daddr;
+	flow.lower_sport = sport;
+	flow.lower_dport = dport;
 	flow.protocol = protocol;
 
 	idx = (saddr + daddr + sport + dport + protocol)%NUM_ROOTS;
@@ -456,8 +477,16 @@ struct ndpi_flow_info *get_ndpi_flow_info(struct ndpi_iphdr *iph,u_int16_t ip_of
 	//printf("nodeidx=%d\n",idx);
 get_node:
 	ret = ndpi_tfind(&flow,&main_workflow->ndpi_flow_root[idx],ndpi_node_com);
+	//Trace("ndpi_tfind\n");
 	if(ret == NULL)
 	{
+		if(protocol == IPPROTO_TCP)
+		{
+			if(tcph->syn!=1 || tcph->ack!=0)
+			{
+				return 0;
+			}
+		}
 	//	printf("ret==NULL\n");
 		struct ndpi_flow_info *newflow = (struct ndpi_flow_info *)malloc(sizeof(struct ndpi_flow_info));
 		if(newflow == NULL)
@@ -466,16 +495,17 @@ get_node:
 			return 0;
 		}
 		memset(newflow,0,sizeof(struct ndpi_flow_info));
-		newflow->src=saddr;
-		newflow->dst=daddr;
-		newflow->sport=sport;
-		newflow->dport=dport;
+		newflow->lower_src=saddr;
+		newflow->lower_dst=daddr;
+		newflow->lower_sport=sport;
+		newflow->lower_dport=dport;
 		newflow->protocol=protocol;
 		newflow->data_len=data_len;
 		newflow->begin=write_time;
 		newflow->end=write_time;
 		if(iph->protocol==IPPROTO_TCP)
 		{
+			
 			if(tcph->fin==1)
 			{
 				newflow->status=1;   //end
@@ -488,8 +518,20 @@ get_node:
 		//printf("beginwrite:%d\n",newflow->begin.tv_sec);
 		//printf("endwrite:%d\n",newflow->end.tv_sec);
 		
-		inet_ntop(AF_INET,&saddr,newflow->lower_ip,sizeof(newflow->lower_ip));
-		inet_ntop(AF_INET,&daddr,newflow->upper_ip,sizeof(newflow->upper_ip));
+		
+		//set ip addr and port
+		inet_ntop(AF_INET,&(iph->saddr),newflow->saddr,sizeof(newflow->saddr));
+		inet_ntop(AF_INET,&(iph->daddr),newflow->daddr,sizeof(newflow->daddr));
+		if(iph->protocol==IPPROTO_TCP)
+		{
+			newflow->sport=ntohs(tcph->source);
+			newflow->dport=ntohs(tcph->dest);
+		}
+		if(iph->protocol==IPPROTO_UDP)
+		{
+			newflow->sport=ntohs(udph->source);
+			newflow->dport=ntohs(udph->dest);
+		}
 
 		if((newflow->ndpi_flow = ndpi_malloc(SIZEOF_FLOW_STRUCT)) == NULL)
 		{
@@ -522,7 +564,7 @@ get_node:
 		struct ndpi_flow_info *tmpflow = *(struct ndpi_flow_info**)ret;
 		if(tmpflow->outnode==1)
 		{
-			Trace("DELETE\n");
+			//Trace("DELETE\n");
 			ndpi_tdelete(tmpflow,&main_workflow->ndpi_flow_root[idx],ndpi_node_com);
 			goto get_node;
 		}
@@ -533,7 +575,7 @@ get_node:
 				tmpflow->status=1;
 			}
 		}
-		if(tmpflow->src == saddr && tmpflow->dst == daddr && tmpflow->sport == sport && tmpflow->dport == dport && tmpflow->protocol == protocol)
+		if(tmpflow->lower_src == saddr && tmpflow->lower_dst == daddr && tmpflow->lower_sport == sport && tmpflow->lower_dport == dport && tmpflow->protocol == protocol)
 		{
 			*src = tmpflow->src_id;
 			*dst = tmpflow->dst_id;

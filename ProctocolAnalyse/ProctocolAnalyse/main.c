@@ -49,7 +49,8 @@ int main()
 	
 	//init ndpi struct
 	setup_detection(device);
-
+	
+	ip_frag_init();
 
 	open_mysql();
 
