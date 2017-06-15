@@ -1,3 +1,4 @@
+
 <?php
 	$conn=@mysqli_connect('localhost','root','root','mydatabase');
 	if(mysqli_connect_errno($conn))
@@ -18,9 +19,9 @@
 		//echo $query;
 	}
 	$result=mysqli_query($conn,$query);
-	echo "The result is:";
+	echo "查询结果:";
 	echo "<table border=1>";
-	echo "<tr><td>PriIP</td><td>ExIP</td><td>PriPort</td><td>ExPort</td><td>Trans</td><td>App</td><td>BeginTime</td><td>EndTime</td><td>Flow</td><td>Packets</td></tr>";
+	echo "<tr><td>源地址</td><td>目的地址</td><td>源端口</td><td>目的端口</td><td>传输层协议</td><td>应用层协议</td><td>开始时间</td><td>结束时间</td><td>流量</td><td>IP数据包</td></tr>";
 	while($row=mysqli_fetch_array($result))
 	{
 		echo "<tr>";

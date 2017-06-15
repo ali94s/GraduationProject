@@ -4,17 +4,6 @@
 #include"libndpi-1.8.0/libndpi/ndpi_api.h"
 #include<stdlib.h>
 
-#define IP_CE             0x8000   /* Flag: "Congestion" */
-#define IP_DF             0x4000   /* Flag: "Don't Fragment" */
-#define IP_MF            0x2000   /* Flag: "More Fragments" */
-#define IP_OFFSET   0x1FFF  /* "Fragment Offset" part */
-#define IPF_NEW 1
-#define IPF_ISF 0
-#define IPF_NOTF -1
-#define HASH_SIZE 64
-#define IPFRAG_HIGH_THRESH            (256*1024)
-#define IPFRAG_LOW_THRESH            (192*1024)
-#define IP_FRAG_TIME     (30 * 1000)   /* fragment lifetime */
 //some struct for ip regroup
 struct sk_buff
 {

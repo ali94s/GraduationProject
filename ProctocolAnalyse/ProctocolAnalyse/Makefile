@@ -9,7 +9,7 @@ LIBS=-lpcap -lndpi -lpthread -lmysqlclient
 
 all:main
 
-main:main.c ProtocolAnalyse.c mysql.c regroup.c
+main:main.c ProtocolAnalyse.c mysql.c regroup.c 
 	$(CC) -o $@ $^ $(LIBS) $(NO_WARN) $(FIND_LIB) $(FIND_INCLUDE)
 
 debug:main.c ProtocolAnalyse.c mysql.c regroup.c

@@ -55,8 +55,8 @@ int main()
 	open_mysql();
 
 	//timeout system
-	//init_sigaction();
-	//init_time();
+	init_sigaction();
+	init_time();
 	
 	
 	thread_create();

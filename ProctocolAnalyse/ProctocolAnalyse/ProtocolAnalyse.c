@@ -3,7 +3,7 @@
 #include"trace.h"
 //#include<sys/types.h>
 #include<sys/syscall.h>
-#include"regroup.h"
+//#include"regroup.h"
 
 
 #define FIN_TIMEOUT 40
@@ -52,11 +52,22 @@ void get_and_insert_mysql(struct ndpi_flow_info *tmpnode)
 	//Trace("end:sec=%d,usec=%d\n",tmpnode->end.tv_sec,tmpnode->end.tv_usec);
 	char buf[48];
 	char data[512];
+	char trans[30];
+	if(tmpnode->protocol==6)
+	{
+		sprintf(trans,"%s","TCP");
+	}
+	else if(tmpnode->protocol==17)
+		sprintf(trans,"%s","UDP");
+	else if(tmpnode->protocol==1)
+		sprintf(trans,"%s","ICMP");
+	else
+		sprintf(trans,"%s","other");
 	snprintf(buf,sizeof(buf),"%s",ndpi_get_proto_name(main_workflow->ndpi_struct,(tmpnode->detected_protocol).master_protocol));
 	if(tmpnode->begin.tv_sec!=tmpnode->end.tv_sec || tmpnode->begin.tv_usec!=tmpnode->end.tv_usec)
 	{
-		sprintf(data,"insert into FlowAnalyse(PriIP,ExIP,PriPort,ExPort,Trans,App,BeginTime,EndTime,Flow,Packets)values('%s','%s',%d,%d,%d,'%s',%d,%d,%d,%d)",tmpnode->saddr,tmpnode->daddr,\
-		tmpnode->sport,tmpnode->dport,(tmpnode->protocol),buf,tmpnode->begin.tv_sec,\
+		sprintf(data,"insert into FlowAnalyse(PriIP,ExIP,PriPort,ExPort,Trans,App,BeginTime,EndTime,Flow,Packets)values('%s','%s',%d,%d,'%s','%s',%d,%d,%d,%d)",tmpnode->saddr,tmpnode->daddr,\
+		tmpnode->sport,tmpnode->dport,trans,buf,tmpnode->begin.tv_sec,\
 		tmpnode->end.tv_sec,tmpnode->data_len,tmpnode->packets);
 		insert_mysql(mysql,data);
 	}
@@ -254,45 +265,34 @@ void run_pcaploop(struct pcap_t *handle)
 /* ******************************************* */
 void packet_analyse(u_char *user,const struct pcap_pkthdr *hdr,const u_char *packet)
 {
-	//int i =0;
-	/*for(i=0;i<hdr->len;++i)
-	{
-		printf("%02x ",packet[i]);
-	}
-	printf("\n");*/
-	
-
-
 	//only deal with DLT_EN10MB
 	const struct ndpi_ethhdr *ethernet;
 	//llc header
-	const struct ndpi_llc_header *llc;
+	//const struct ndpi_llc_header *llc;
 	//ip header
 	struct ndpi_iphdr *iph;
 
 	u_int16_t eth_offset = 0;
 	u_int16_t ip_offset = 0;
-	u_int16_t type = 0;
-	int pyld_eth_len = 0;
-	int check = 0;
+//	u_int16_t type = 0;
+//	int pyld_eth_len = 0;
+//	int check = 0;
 	int flag = 0;
 	struct ndpi_iphdr **defrag;
-	//ndpi_protocol  protocol;
-	//u_char *packet_check=malloc(hdr->caplen);
-	//memcpy(packet_check,packet,hdr->caplen);
-	//system("pause");
-	const int eth_type = pcap_datalink((struct pcap*)user);
-	switch(eth_type)
+	
+	ethernet = (struct ndpi_ethhdr*)&packet[eth_offset];
+	ip_offset = sizeof(struct ndpi_ethhdr) + eth_offset;
+
+//	const int eth_type = pcap_datalink((struct pcap*)user);
+	/*switch(eth_type)
 	{
-		/* IEEE 802.3 Ethernet */
+		// IEEE 802.3 Ethernet 
 		case DLT_EN10MB:
 			ethernet = (struct ndpi_ethhdr*)&packet[eth_offset];
 			ip_offset = sizeof(struct ndpi_ethhdr) + eth_offset;
 
 
 			check = ntohs(ethernet->h_proto);
-			/* debug print */
-			//printf("%d\n",check);
 			if(check <= 1500)  //length of data frame
 				pyld_eth_len = check;
 
@@ -304,7 +304,6 @@ void packet_analyse(u_char *user,const struct pcap_pkthdr *hdr,const u_char *pac
 					{
 						printf("llc\n");
 						llc = (struct ndpi_llc_header*)&(packet[ip_offset]);
-						//type = llc->snap.proto_ID;
 						ip_offset += 8;
 					}
 				}
@@ -312,40 +311,37 @@ void packet_analyse(u_char *user,const struct pcap_pkthdr *hdr,const u_char *pac
 		default:
 			printf("Unknow link type\n");
 		break;
-	}
-	//printf("type=%d\n",type);
-	/* already get ip packet*/
-	iph = (struct ndpi_iphdr*)&(packet[ip_offset]);
-	/*if(iph->protocol == IPPROTO_UDP)
-	{
-		printf("UDP\n");
 	}*/
+	iph = (struct ndpi_iphdr*)&(packet[ip_offset]);
 	flag = ntohs(iph->frag_off);
 
-//	printf("TOT_LEN = %d ",ntohs(iph->tot_len));
-//	printf("DF = %d ",flag & 0x4000);
-//	printf("MF = %d ",flag & IP_MF);
-//	printf("OFFSET = %d\n",flag & IP_OFFSET);
-
+	Trace("rec data\n");
 	//not ip fragments
 	if(((flag & IP_MF) == 0) && ((flag & IP_OFFSET) == 0))
 	{
 		get_protocol(iph,ip_offset,hdr->len-ip_offset);
-		//printf("is not fragments\n");
-		//if(protocol.master_protocol!=0)
-		//printf("%d\n",protocol.master_protocol);
 	}
 	else
 	{
 		//iph = get_whole_ip_packet(iph);
 		if(iph)
 		{
-			/*	
+			/*Trace("is frag\n");
+			if(ip_defrag_stub(iph,defrag)==1)
+			{
+				Trace("yes\n");
+				return ;
+			}
+			else
+			{
+				Trace("\n");
+				return ;
+			}*/
 		 	if(ip_defrag_stub(iph,defrag)==1)
 			{
 				get_protocol((struct ndpi_iphdr*)*defrag,0,(struct ndpi_iphdr*)(*defrag)->tot_len);
 			}
-			*/
+			
 		}
 		else
 		{

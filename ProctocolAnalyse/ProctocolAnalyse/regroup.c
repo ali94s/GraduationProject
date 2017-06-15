@@ -1,6 +1,17 @@
 #include"regroup.h"
+#include"trace.h"
 
-
+#define IP_CE             0x8000   /* Flag: "Congestion" */
+#define IP_DF             0x4000   /* Flag: "Don't Fragment" */
+#define IP_MF            0x2000   /* Flag: "More Fragments" */
+#define IP_OFFSET   0x1FFF  /* "Fragment Offset" part */
+#define IPF_NEW 1
+#define IPF_ISF 0
+#define IPF_NOTF -1
+#define HASH_SIZE 64
+#define IPFRAG_HIGH_THRESH            (256*1024)
+#define IPFRAG_LOW_THRESH            (192*1024)
+#define IP_FRAG_TIME     (30 * 1000)   /* fragment lifetime */
 //hashtable
 struct hostfrags **fragtable;
 static struct hostfrags *this_host;
@@ -49,7 +60,7 @@ int hostfrag_find(struct ndpi_iphdr *iph)
 	this_host = 0;
 	for(hf=fragtable[hash_index];hf;hf=hf->next)
 	{
-		if(hf->ip == iph->saddr)
+		if(hf->ip == iph->daddr)
 		{
 			this_host=hf;
 			break;
@@ -67,7 +78,7 @@ void hostfrag_create(struct ndpi_iphdr* iph)
 	int hash_index = frag_index(iph);
 	hf->prev = 0;
 	hf->next = fragtable[hash_index];
-	if (hf->next)
+	if(hf->next)
 		hf->next->prev = hf;
 	fragtable[hash_index] = hf;
 	hf->ip = iph->daddr;
@@ -331,9 +342,12 @@ int ip_done(struct ipq * qp)
 	/* Check all fragment offsets to see if they connect. */
 	fp = qp->fragments;
 	offset = 0;
-	while (fp != NULL) {
+	while (fp != NULL) 
+	{
 		if (fp->offset > offset)
+		{
 			return (0);         /* fragment(s) missing */
+		}
 		offset = fp->end;
 		fp = fp->next;
 	}
@@ -409,19 +423,26 @@ char *ip_defrag(struct ndpi_iphdr *iph,struct sk_buff *skb)
 	char *ptr;
 	int flags, offset;
 	int i, ihl, end;
+	//Trace("find\n");
 	if (!hostfrag_find(iph) && skb)
+	{
+		//Trace("find over\n");
 		hostfrag_create(iph);
+	}
+	//Trace("create over\n");
 	if(this_host)
 		 if (this_host->ip_frag_mem > IPFRAG_HIGH_THRESH)
 			 ip_evictor();
+	//Trace("");
 	if(this_host)   
 		qp = ip_find(iph);
 	else
 		qp = 0;
+	//Trace("");
 	offset = ntohs(iph->frag_off); //offset  lower3->frag heigh13->offset 
 	flags = offset & ~IP_OFFSET;
 	offset &= IP_OFFSET;
-	
+	//Trace("");
 	if (((flags & IP_MF) == 0) && (offset == 0)) 
 	{
 		if (qp != NULL)
@@ -431,7 +452,7 @@ char *ip_defrag(struct ndpi_iphdr *iph,struct sk_buff *skb)
 	}
 	offset <<= 3;                   /* offset is in 8-byte chunks */
 	ihl = iph->ihl * 4;
-
+	//Trace("");
 	if(qp!=NULL)
 	{
 		if (offset == 0) 
@@ -532,14 +553,17 @@ char *ip_defrag(struct ndpi_iphdr *iph,struct sk_buff *skb)
 	if (next != NULL)
 		next->prev = tfp;
 	//该分片所属的IP包是否可重组？
+	//Trace("go to IPdone\n");
 	if (ip_done(qp))
 	{
+		//Trace("go to ip_glue()\n");
 		skb2 = ip_glue(qp);           /* glue together the fragments */
 		//zeq_skb_3
 		//继续将重建的ip 包首地址返回给调用函数ip_defrag_stub
 		return (skb2);
 	}
-		return (NULL);
+	//Trace("");
+	return NULL;
 }
 
 
@@ -583,10 +607,14 @@ int ip_defrag_stub(struct ndpi_iphdr *iph, struct ndpi_iphdr **defrag)
   //如果此时ip_defrag返回的指针不为0，即已经重建了ip 包
   //则通过二重指针defrag 将新建IP 包的首地址传递给调用
   //函数gen_ip_frag_proc
-  if ((*defrag = (struct ndpi_iphdr *)ip_defrag((struct ndpi_iphdr *) (skb->data), skb)))
+  //Trace("go to defrag()\n");
+  if((*defrag = (struct ndpi_iphdr *)ip_defrag((struct ndpi_iphdr *) (skb->data),skb)))
     return IPF_NEW;
- 
-  return IPF_ISF;
+  else
+  {
+	//Trace("");
+	return IPF_ISF;
+  }
 }
 
 

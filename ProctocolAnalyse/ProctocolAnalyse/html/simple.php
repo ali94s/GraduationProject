@@ -4,9 +4,9 @@
 		echo 'failed to connect to MYSQL:'.mysqli_connect_errno();
 	$query="select App,sum(Packets) Packets,sum(Flow) Flow from FlowAnalyse group by App";
 	$result=mysqli_query($conn,$query);
-	echo "The query result is:";
+	echo "查询结果:";
 	echo "<table border=1>";
-	echo "<tr><td>App</td><td>Packets</td><td>Flow</td></tr>";
+	echo "<tr><td>应用层协议</td><td>IP数据包</td><td>流量</td></tr>";
 	while($row=mysqli_fetch_array($result))
 	{
 		echo "<tr>";
